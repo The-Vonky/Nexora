@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      INFRA_PROJECT: gaucha-infra-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      INFRA_PROJECT: nexora-infra-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,17 +43,17 @@ jobs:
       - name: Generate ephemeral credentials outside checkout
         shell: bash
         run: |
-          bash scripts/ops/gen-secrets.sh --environment ci --output "$RUNNER_TEMP/gaucha-infra.env"
+          bash scripts/ops/gen-secrets.sh --environment ci --output "$RUNNER_TEMP/nexora-infra.env"
           # Mask every secret and synthetic marker before any container command.
           while IFS='=' read -r key value; do
             case "$key" in
               POSTGRES_PASSWORD|JWT_SECRET|ANON_KEY|SERVICE_ROLE_KEY|INFRA_INSTANCE_ID) echo "::add-mask::$value" ;;
             esac
-          done < "$RUNNER_TEMP/gaucha-infra.env"
+          done < "$RUNNER_TEMP/nexora-infra.env"
       - name: Validate resolved safety contract
         shell: bash
         run: |
-          docker compose --env-file "$RUNNER_TEMP/gaucha-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml config --format json > "$RUNNER_TEMP/infra-config.json"
+          docker compose --env-file "$RUNNER_TEMP/nexora-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml config --format json > "$RUNNER_TEMP/infra-config.json"
           node --input-type=module - "$RUNNER_TEMP/infra-config.json" <<'JS'
           import {readFileSync} from 'node:fs';
           import assert from 'node:assert/strict';
@@ -79,8 +79,8 @@ jobs:
         shell: bash
         run: |
           # REST requires application schemas, which are created by the next step.
-          docker compose --env-file "$RUNNER_TEMP/gaucha-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml up -d
-          node --input-type=module - "$RUNNER_TEMP/gaucha-infra.env" "$INFRA_PROJECT" <<'JS'
+          docker compose --env-file "$RUNNER_TEMP/nexora-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml up -d
+          node --input-type=module - "$RUNNER_TEMP/nexora-infra.env" "$INFRA_PROJECT" <<'JS'
           import {execFileSync} from 'node:child_process';
           const [file,project]=process.argv.slice(2);
           const compose=['compose','--env-file',file,'-p',project,'-f','infra/supabase/docker-compose.yml'];
@@ -102,32 +102,32 @@ jobs:
       - name: Apply existing migrations to explicit new DB
         shell: bash
         run: |
-          bash scripts/ops/apply-migrations.sh --environment ci --env-file "$RUNNER_TEMP/gaucha-infra.env" --project "$INFRA_PROJECT" --database postgres
-          if bash scripts/ops/apply-migrations.sh --environment ci --env-file "$RUNNER_TEMP/gaucha-infra.env" --project "$INFRA_PROJECT" --database postgres; then
+          bash scripts/ops/apply-migrations.sh --environment ci --env-file "$RUNNER_TEMP/nexora-infra.env" --project "$INFRA_PROJECT" --database postgres
+          if bash scripts/ops/apply-migrations.sh --environment ci --env-file "$RUNNER_TEMP/nexora-infra.env" --project "$INFRA_PROJECT" --database postgres; then
             echo 'Migrations accepted a populated target' >&2; exit 1
           fi
           # Final readiness includes REST, with exactly the configured app schemas.
-          docker compose --env-file "$RUNNER_TEMP/gaucha-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml up -d --wait --wait-timeout 180
+          docker compose --env-file "$RUNNER_TEMP/nexora-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml up -d --wait --wait-timeout 180
       - name: Healthcheck mandatory services and data paths
         shell: bash
-        run: bash scripts/ops/healthcheck.sh --environment ci --env-file "$RUNNER_TEMP/gaucha-infra.env" --project "$INFRA_PROJECT" --database postgres
+        run: bash scripts/ops/healthcheck.sh --environment ci --env-file "$RUNNER_TEMP/nexora-infra.env" --project "$INFRA_PROJECT" --database postgres
       - name: Smoke current application infrastructure contract
         shell: bash
-        run: node scripts/ops/smoke.mjs --environment ci --env-file "$RUNNER_TEMP/gaucha-infra.env" --project "$INFRA_PROJECT" --database postgres
+        run: node scripts/ops/smoke.mjs --environment ci --env-file "$RUNNER_TEMP/nexora-infra.env" --project "$INFRA_PROJECT" --database postgres
       - name: Negative healthcheck with Storage stopped
         shell: bash
         run: |
-          docker compose --env-file "$RUNNER_TEMP/gaucha-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml stop storage
-          if bash scripts/ops/healthcheck.sh --environment ci --env-file "$RUNNER_TEMP/gaucha-infra.env" --project "$INFRA_PROJECT" --database postgres; then
+          docker compose --env-file "$RUNNER_TEMP/nexora-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml stop storage
+          if bash scripts/ops/healthcheck.sh --environment ci --env-file "$RUNNER_TEMP/nexora-infra.env" --project "$INFRA_PROJECT" --database postgres; then
             echo 'Healthcheck incorrectly accepted stopped Storage' >&2; exit 1
           fi
-          docker compose --env-file "$RUNNER_TEMP/gaucha-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml up -d --wait --wait-timeout 120
-          bash scripts/ops/healthcheck.sh --environment ci --env-file "$RUNNER_TEMP/gaucha-infra.env" --project "$INFRA_PROJECT" --database postgres
+          docker compose --env-file "$RUNNER_TEMP/nexora-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml up -d --wait --wait-timeout 120
+          bash scripts/ops/healthcheck.sh --environment ci --env-file "$RUNNER_TEMP/nexora-infra.env" --project "$INFRA_PROJECT" --database postgres
       - name: Sanitized failure diagnostics
         if: failure()
         shell: bash
         run: |
-          node --input-type=module - "$RUNNER_TEMP/gaucha-infra.env" "$INFRA_PROJECT" <<'JS'
+          node --input-type=module - "$RUNNER_TEMP/nexora-infra.env" "$INFRA_PROJECT" <<'JS'
           import {readFileSync,existsSync} from 'node:fs';
           import {execFileSync} from 'node:child_process';
           const [file,project]=process.argv.slice(2);
@@ -147,8 +147,8 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if test -f "$RUNNER_TEMP/gaucha-infra.env"; then
-            ids=$(docker compose --env-file "$RUNNER_TEMP/gaucha-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml ps --quiet)
+          if test -f "$RUNNER_TEMP/nexora-infra.env"; then
+            ids=$(docker compose --env-file "$RUNNER_TEMP/nexora-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml ps --quiet)
             if test -n "$ids"; then
               # IDs are produced by Docker; intentionally one argument per ID.
               # shellcheck disable=SC2086
@@ -160,8 +160,8 @@ jobs:
         shell: bash
         run: |
           status=0
-          if test -f "$RUNNER_TEMP/gaucha-infra.env"; then
-            docker compose --env-file "$RUNNER_TEMP/gaucha-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml down -v --remove-orphans || status=$?
+          if test -f "$RUNNER_TEMP/nexora-infra.env"; then
+            docker compose --env-file "$RUNNER_TEMP/nexora-infra.env" -p "$INFRA_PROJECT" -f infra/supabase/docker-compose.yml down -v --remove-orphans || status=$?
           fi
-          rm -f "$RUNNER_TEMP/gaucha-infra.env" "$RUNNER_TEMP/infra-config.json"
+          rm -f "$RUNNER_TEMP/nexora-infra.env" "$RUNNER_TEMP/infra-config.json"
           exit "$status"

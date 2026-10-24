@@ -1,9 +1,7 @@
 import { useId } from "react";
-// The Gaúcha "elos": two open loops (orange/gold and green/lime), each closed by
-// a "plate", touching in the middle. Used as the mark (small) and as the
-// structural motif of brand surfaces (architectural scale).
-const ORANGE_LOOP = "M9.84 6.63A9 9 0 1 1 9.84 21.37";
-const GREEN_LOOP = "M38.16 6.63A9 9 0 1 0 38.16 21.37";
+// Nexora monogram; brand colors and component contract are preserved.
+const ORANGE_LOOP = "M9 23V5";
+const GREEN_LOOP = "M9 5L39 23V5";
 export function BrandMark({
   className = "brand-mark",
   tone = "color",
@@ -45,7 +43,6 @@ export function BrandMark({
           strokeWidth={weight}
           strokeLinecap="round"
         />
-        <circle cx="5" cy="14" r="4" fill={orange} />
       </g>
       <g className="loop-green">
         <path
@@ -55,7 +52,6 @@ export function BrandMark({
           strokeWidth={weight}
           strokeLinecap="round"
         />
-        <circle cx="43" cy="14" r="4" fill={green} />
       </g>
     </svg>
   );

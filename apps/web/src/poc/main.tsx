@@ -40,7 +40,7 @@ function Probe() {
       </a>
       <header className="tw:border-b tw:border-solid tw:border-elo-border tw:bg-elo-surface">
         <div className="tw:mx-auto tw:flex tw:max-w-6xl tw:items-center tw:justify-between tw:gap-elo-4 tw:px-elo-4 tw:py-elo-4 sm:tw:px-elo-6">
-          <strong className="tw:font-elo-display">Gaúcha Gestão / Elo</strong>
+          <strong className="tw:font-elo-display">Nexora / Elo</strong>
           <span className="tw:text-elo-caption tw:text-elo-muted">UI-00 · ambiente de prova</span>
         </div>
       </header>

@@ -5,13 +5,13 @@ set +x
 ops_fail() { echo "$1" >&2; exit 2; }
 ops_init() {
   [[ $# == 8 && $1 == --environment && $3 == --env-file && $5 == --project && $7 == --database ]] ||
-    ops_fail 'Required: --environment ci|staging --env-file /external/file.env --project gaucha-infra-NAME --database postgres'
+    ops_fail 'Required: --environment ci|staging --env-file /external/file.env --project nexora-infra-NAME --database postgres'
   environment=$2
   env_file=$4
   project=$6
   database=$8
   case "$environment" in ci|staging) ;; *) ops_fail 'Unsupported environment' ;; esac
-  [[ $project =~ ^gaucha-infra-[a-z0-9][a-z0-9-]*$ ]] || ops_fail 'Explicit isolated project name required'
+  [[ $project =~ ^nexora-infra-[a-z0-9][a-z0-9-]*$ ]] || ops_fail 'Explicit isolated project name required'
   [[ $database == postgres ]] || ops_fail 'Only the Compose postgres database is supported'
   [[ $env_file == /* && -f $env_file ]] || ops_fail 'Absolute env file required'
   repo_root=$(git -C "$(dirname "${BASH_SOURCE[0]}")/../.." rev-parse --show-toplevel)

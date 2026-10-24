@@ -39,7 +39,7 @@ export function PrintSurface({ report, onClose }: { report: AuditReport; onClose
     </div>
     <article className="report-page">
       <header className="report-head">
-        <p>Gaúcha Gestão · Qualidade · Auditorias</p>
+        <p>Nexora · Qualidade · Auditorias</p>
         <h1>{report.kind === "inspection" ? "Relatório de auditoria" : "Histórico de auditorias"}</h1>
         <p><strong>{report.unit.code} · {report.unit.name}</strong> · ID {report.unit.id}</p>
         <p>Gerado em {instant(report.generated_at)} (São Paulo) por {report.generated_by.name} · Versão do relatório {report.schema_version}</p>

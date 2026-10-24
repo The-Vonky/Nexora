@@ -106,10 +106,10 @@ function Boundary() {
 }
 function Brand() {
   return (
-    <Link className="brand" to="/" aria-label="Gaúcha Gestão — Início">
+    <Link className="brand" to="/" aria-label="Nexora — Início">
       <BrandMark />
       <span className="brand-name">
-        Gaúcha<small>Gestão</small>
+        Nexora
       </span>
     </Link>
   );
@@ -538,11 +538,11 @@ function Shell() {
           <Link
             className="topbar-brand"
             to="/"
-            aria-label="Gaúcha Gestão — Início"
+            aria-label="Nexora — Início"
           >
             <BrandMark />
             <span className="brand-name">
-              Gaúcha<small>Gestão</small>
+              Nexora
             </span>
           </Link>
           <Breadcrumbs current={current} />
@@ -630,7 +630,7 @@ export function App() {
       {!client ? (
         <main className="center-state">
           <BrandMark className="state-mark" />
-          <h1>Gaúcha Gestão</h1>
+          <h1>Nexora</h1>
           <Notice>
             Ambiente de desenvolvimento não configurado. Informe a URL e a chave
             pública do Supabase conforme o guia local.
