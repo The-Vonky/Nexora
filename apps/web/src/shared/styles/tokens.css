@@ -1,13 +1,13 @@
 /*
- * Gaúcha Gestão — design tokens (Quality UI v1 + Design System Elo v1).
- * Source of the palette: the Gaúcha Alimentação logo (orange/gold loop,
+ * Nexora — design tokens (Quality UI v1 + Design System Elo v1).
+ * Palette inherited from the source project's visual system (orange/gold,
  * green→lime loop, charcoal wordmark). Rules live in docs/briefs/QUALITY_UI_V1.md;
  * neutrals, elevation, focus and motion follow docs/briefs/DESIGN_SYSTEM_ELO_V1.md.
  * Brand tokens express identity; semantic tokens express state. Never use a
  * brand token to communicate status.
  */
 :root {
-  /* ---------- Brand: Gaúcha green (primary interactive family) ---------- */
+  /* ---------- Brand: inherited green (primary interactive family) ---------- */
   --brand-green-50: #eff9f1;
   --brand-green-100: #d9f1df;
   --brand-green-200: #b5e3c0;
@@ -23,7 +23,7 @@
   --brand-lime-300: #c6de82; /* gradient tail of the green loop */
   --brand-lime-400: #a6cf5e;
 
-  /* ---------- Brand: Gaúcha orange (complementary signature) ---------- */
+  /* ---------- Brand: inherited orange (complementary signature) ---------- */
   --brand-orange-50: #fff8eb;
   --brand-orange-100: #feedc8;
   --brand-orange-200: #fdd98c;
