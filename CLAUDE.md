@@ -1,4 +1,6 @@
-# Instruções para Claude Code — Gaúcha Gestão
+# Instruções para Claude Code — Nexora
+
+Este repositório é uma derivação independente. Nunca reutilize dados, servidores, secrets, Docker volumes, projetos Supabase ou credenciais da Gaúcha. Referências à operação da Gaúcha nos documentos herdados são históricas, não instruções para a Nexora.
 
 Este arquivo contém apenas orientações específicas para o Claude. A **fonte comum e obrigatória** para qualquer agente é [AGENTS.md](AGENTS.md). Em conflito, siga o brief/issue autorizados e os ADRs aceitos, conforme a hierarquia do `AGENTS.md`.
 

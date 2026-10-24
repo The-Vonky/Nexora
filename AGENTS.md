@@ -1,10 +1,26 @@
-# Instruções para agentes de desenvolvimento — Gaúcha Gestão
+# Instruções para agentes de desenvolvimento — Nexora
+
+> **Repositório independente:** `The-Vonky/Nexora`. Derivado do snapshot `677a70c690b93d81f373a572187b79adf18f0ff0` de `The-Vonky/Gaucha-Gestao`. A partir da derivação, decisões, alterações e issues do projeto original **não são automaticamente autorizadas** para a Nexora.
+>
+> **Ambientes isolados:** jamais conectar a Nexora a bancos, contêineres, credenciais, buckets, projetos Supabase, host C30, endereços ou dados da Gaúcha. A documentação herdada sobre C30, `gaucha-staging`, Cloudflare, infraestrutura ou links de issues é **evidência histórica do projeto de origem**, não um runbook executável da Nexora.
+>
+> **Escopo do produto:** preservar Core, Auditoria de Qualidade, Planos de Ação, Curva ABC, regras de domínio, RLS e migrations; a alteração inicial é somente identidade Nexora e parâmetros explícitos de isolamento. Não converter propostas históricas em features prontas.
+>
+> **Produção Nexora: NO-GO.** A cópia do código não cria banco, contas, implantação, domínio, monitoramento nem autorização para dados reais. Gates próprios de segurança, homologação, backup e aceite devem ser aprovados antes de deploy.
+>
+> **Governança:** abrir PR em `The-Vonky/Nexora`; não fazer alterações no repositório original. Cada projeto tem branch, banco, dados e ambiente únicos. Nenhum comando destrutivo sobre ambiente persistente/compartilhado.
+
+---
+
+## Referência de engenharia herdada (aplicável quando compatível com o escopo Nexora)
+
+# Políticas técnicas originais — referência histórica
 
 **Idioma de trabalho:** português brasileiro (pt-BR) em documentação, PRs, issues, registros de validação, relatórios e explicações. **Não traduzir** nomes de arquivos, diretórios, símbolos de código, schemas, SQL, funções, variáveis, comandos, logs ou identificadores técnicos. Preservar citações e nomes oficiais de serviços.
 
-> **Estado de referência (21/10/2026):** Core v2, Auditorias/Qualidade v1, Planos de Ação, evidências, relatórios e Curva ABC v1 estão integrados ao código. O módulo ABC ainda requer homologação manual. Ensaios automatizados em CI e restore sintético não comprovam implantação produtiva. **PROD NO-GO**: não há autorização para deploy ou manipulação de dados reais.
+> **Estado da origem (21/10/2026, não da Nexora):** Core v2, Auditorias/Qualidade v1, Planos de Ação, evidências, relatórios e Curva ABC v1 estão integrados ao código. O módulo ABC ainda requer homologação manual. Ensaios automatizados em CI e restore sintético não comprovam implantação produtiva. **PROD NO-GO**: não há autorização para deploy ou manipulação de dados reais.
 
-> **Atualização operacional de 22/10/2026:** a C30 possui **STAGING persistente** no commit `f9f041e` (18 migrations) com Supabase e Caddy ativos; não está em PROD e não é laboratório descartável. Ver [inventário do host](docs/operations/C30_STAGING_AS_BUILT_20261022.md), [diagnóstico seguro](docs/operations/C30_STAGING_RUNBOOK.md), [lacunas de backup](docs/operations/C30_BACKUP_GAPS.md) e [releases](docs/operations/C30_STAGING_RELEASE_GUIDE.md). Qualquer migração do checkout mais recente para o host exige tratamento separado e autorizado.
+> **Atualização da origem de 22/10/2026 (não da Nexora):** a C30 possui **STAGING persistente** no commit `f9f041e` (18 migrations) com Supabase e Caddy ativos; não está em PROD e não é laboratório descartável. Ver [inventário do host](docs/operations/C30_STAGING_AS_BUILT_20261022.md), [diagnóstico seguro](docs/operations/C30_STAGING_RUNBOOK.md), [lacunas de backup](docs/operations/C30_BACKUP_GAPS.md) e [releases](docs/operations/C30_STAGING_RELEASE_GUIDE.md). Qualquer migração do checkout mais recente para o host exige tratamento separado e autorizado.
 
 ## 1. Papel e fonte da verdade
 
