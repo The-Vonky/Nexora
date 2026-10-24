@@ -11,10 +11,9 @@ import { client } from "../client";
 import { Notice } from "../../shared/ui";
 import { Icon } from "../../shared/icons";
 import { BrandMark } from "../../shared/brand";
-import logo from "../../assets/gaucha-alimentacao-logo.png";
 import "./Login.css";
 
-// Login v3 · Elo. The two open loops of the Gaúcha mark meet on the seam
+// Login v3 · Elo. Decorative loops meet on the seam
 // between the brand panel and the form: the orange loop frames the message,
 // the green loop holds the card. Page layout is pure CSS; the desktop loops
 // are fitted to the rendered card and headline (see useEloGeometry).
@@ -414,7 +413,7 @@ export function Login() {
         </svg>
       )}
 
-      <section ref={brand} className="login-v3-brand" aria-label="Gaúcha Gestão">
+      <section ref={brand} className="login-v3-brand" aria-label="Nexora">
         <svg
           className="login-v3-band-elo"
           aria-hidden="true"
@@ -441,7 +440,7 @@ export function Login() {
         <div ref={product} className="login-v3-product login-v3-rise">
           <BrandMark className="login-v3-product-mark" />
           <span>
-            <strong>Gaúcha Gestão</strong>
+            <strong>Nexora</strong>
             <small>Plataforma corporativa</small>
           </span>
         </div>
@@ -562,7 +561,7 @@ export function Login() {
         <footer className="login-v3-foot login-v3-rise">
           <span className="login-v3-signature">
             <span>Uma plataforma</span>
-            <img src={logo} alt="Gaúcha Alimentação" width="148" height="35" />
+            <strong>Nexora</strong>
           </span>
           <span className="login-v3-copy">© 2026</span>
         </footer>

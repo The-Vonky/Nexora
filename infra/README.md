@@ -20,7 +20,7 @@ O gerador cria um env **novo, fora de todo checkout Git**, e recusa destino já 
 # Escolha nome exclusivo e diretório externo novo para cada laboratório descartável.
 infra_tmp=$(mktemp -d)
 infra_env="$infra_tmp/staging.env"
-infra_project="gaucha-infra-staging-$(date +%s)"
+infra_project="nexora-infra-staging-$(date +%s)"
 bash scripts/ops/gen-secrets.sh --environment staging --output "$infra_env"
 # Edite SITE_URL, API_EXTERNAL_URL, ADDITIONAL_REDIRECT_URLS e GATEWAY_PORT
 # somente no arquivo externo, se necessário. Use modo 600 e nunca exiba segredos.

@@ -1,6 +1,6 @@
 /*
- * Gaúcha Gestão — Login v3 · Elo
- * The two open loops of the Gaúcha mark meet on the seam between the brand
+ * Nexora — Login v3 · Elo
+ * Decorative loops meet on the seam between the brand
  * panel and the form. Reference: validated prototype (Login v3 — direções,
  * route B). Login variables resolve to the shared Elo tokens where one exists
  * (Design System Elo v1); Login-only geometry and motion stay scoped here.
@@ -689,10 +689,10 @@
   line-height: 18px;
 }
 
-.login-v3-signature img {
-  display: block;
-  width: 148px;
-  height: auto;
+.login-v3-signature strong {
+  color: var(--login-text);
+  font: 700 15px/18px var(--font-display);
+  letter-spacing: 0.03em;
 }
 
 /* ---------- Mobile ---------- */

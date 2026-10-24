@@ -1,5 +1,5 @@
 # Development only. Never use this file as production provisioning.
-project_id = "gaucha-gestao-local"
+project_id = "nexora-local"
 [api]
 enabled = true
 port = 54321
