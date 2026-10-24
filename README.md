@@ -2,7 +2,7 @@
 
 **Plataforma corporativa modular de gestão** derivada do projeto Gaúcha Gestão, com **as mesmas funcionalidades e módulos implementados** na versão de origem selecionada, mas mantida em repositório e ambientes separados.
 
-> **Status: código replicado; ambiente independente ainda não provisionado nem homologado. PRODUÇÃO: NO-GO.**
+> **Status: projeto Supabase Nexora criado e 19 migrations aplicadas; ainda sem administrador, frontend publicado ou homologação. PRODUÇÃO: NO-GO.**
 > A criação da Nexora **não** migra dados, funcionários, credenciais, configurações nem a infraestrutura da Gaúcha.
 
 ## Origem e garantia de equivalência
@@ -32,6 +32,10 @@
 - Autorização: Row-Level Security (RLS), grants e funções RPC no banco.
 - Qualidade: Vitest, PGlite, Playwright, GitHub Actions.
 - Estrutura: `apps/web` (aplicação), `supabase/migrations` (schema e política), `infra/` (laboratório de infraestrutura), `tests/` (verificações) e `docs/` (referências técnicas).
+
+## Conexão ao Supabase Nexora hospedado
+
+O banco da organização Nexora já foi estruturado no Supabase hospedado. Para configuração de API, frontend e primeiro administrador, siga **[Configuração do Supabase Nexora](docs/deployment/NEXORA_SUPABASE_SETUP.md)**. Não confunda o projeto hospedado com o laboratório local abaixo.
 
 ## Iniciar o desenvolvimento local isolado
 
@@ -81,7 +85,7 @@ O build pressupõe URL e publishable key de frontend configuradas; confira o wor
 ## O que falta para operar em outra empresa
 
 1. Confirmar autorização de reutilização do software, da arquitetura, das dependências e dos assets corporativos.
-2. Provisionar banco/Auth/Storage exclusivamente para a Nexora e aplicar migrações sobre instância **nova**, sem dados da Gaúcha.
+2. **Concluído:** banco/Auth/Storage exclusivo da Nexora criado no Supabase e 19 migrations aplicadas. Ainda é necessário configurar a exposição dos schemas de API e validar os acessos.
 3. Definir administradores, autenticação, política de acesso e domínio da Nexora.
 4. Realizar revisão de segurança, testes funcionais com dados sintéticos, recuperação de backup, observabilidade e homologação própria.
 5. Formalizar decisão de implantação/produção e plano de rollback.

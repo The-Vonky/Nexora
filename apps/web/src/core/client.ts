@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
+import { isNexoraBackendUrl } from "./backendOrigin";
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 function publicKey(value: string): boolean {
@@ -15,7 +16,7 @@ function publicKey(value: string): boolean {
   }
 }
 export const client =
-  url && key && publicKey(key)
+  url && key && isNexoraBackendUrl(url) && publicKey(key)
     ? createClient<Database>(url, key, { db: { schema: "core" } })
     : null;
 export function database() {
