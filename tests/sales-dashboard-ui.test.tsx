@@ -49,7 +49,7 @@ describe("VEN-04B — painel financeiro completo", () => {
   });
   it("representa todos os gráficos, média, marcador parcial, intensidade, referência lacunar e insights", async () => {
     mount(); await ready();
-    for (const title of ["Evolução mensal", "Ranking de unidades", "Composição mensal por unidade", "Heatmap", "Resumo mensal", "Acumulado diário", "Composição Stone", "Panorama Gaúcha", "Contexto da base"]) expect(figure(title)).toBeTruthy();
+    for (const title of ["Evolução mensal", "Ranking de unidades", "Composição mensal por unidade", "Heatmap", "Resumo mensal", "Acumulado diário", "Composição Stone", "Panorama Nexora", "Contexto da base"]) expect(figure(title)).toBeTruthy();
     expect(figure("Evolução mensal").querySelector(".sales-average")).toBeTruthy(); expect(figure("Evolução mensal").querySelector(".sales-point.partial")).toBeTruthy();
     expect(figure("Acumulado diário").querySelector("path.sales-reference")?.getAttribute("d")).toContain("L");
     expect(figure("Acumulado diário").textContent).toContain("Jul/2026 — referência");
@@ -69,7 +69,7 @@ describe("VEN-04B — painel financeiro completo", () => {
     d.insights.largest_decline = { ...closed, comparison: { ...closed.comparison, cutoff_day: null, variation_pct: "-20.123456", trend: "down" } };
     d.summary.top_two_share_pct = "99.123456";
     api.salesDashboard.mockResolvedValue(d); mount(); await ready();
-    const insights = figure("Panorama Gaúcha");
+    const insights = figure("Panorama Nexora");
     expect(insights.textContent).toContain("07/2026 · -12,5%"); expect(insights.textContent).toContain("Referência 05/2026");
     expect(insights.textContent).toContain("09/2026 · -20,1%"); expect(within(insights).getByText("Percentual exato: -20,123456%")).toBeTruthy();
     expect(insights.textContent).toContain("99,123456%"); expect(insights.textContent).toContain("1775% · referência 07/2026");
@@ -227,7 +227,7 @@ describe("VEN-04B — autorização independente e estados seguros", () => {
 describe("VEN-04B — fidelidade visual e interação acessível", () => {
   it("coloca quatro KPIs e três insights antes da evolução, preservando os seis complementares", async () => {
     mount(); await ready();
-    const executive = screen.getByLabelText("Indicadores executivos"), panorama = figure("Panorama Gaúcha");
+    const executive = screen.getByLabelText("Indicadores executivos"), panorama = figure("Panorama Nexora");
     expect(executive.querySelectorAll(".metric")).toHaveLength(4);
     expect(panorama.querySelectorAll("article")).toHaveLength(3);
     expect(screen.getByLabelText("Indicadores complementares").querySelectorAll(".metric")).toHaveLength(6);
@@ -301,13 +301,13 @@ describe("VEN-04B — refinamentos de usabilidade", () => {
   it("troca somente daily, mantém nós e filtros em edição, atualiza tabela e foco do dia correto", async () => {
     mount(`from=2026-07&to=2026-09&unit=${A}&scope=combined&daily=2026-09&day=2`); await ready();
     const slow = deferred<SalesDashboard>(); api.salesDashboard.mockReturnValueOnce(slow.promise);
-    const before = total(), evolution = figure("Evolução mensal"), panorama = figure("Panorama Gaúcha"), mix = figure("Composição Stone");
+    const before = total(), evolution = figure("Evolução mensal"), panorama = figure("Panorama Nexora"), mix = figure("Composição Stone");
     const plot = figure("Acumulado diário").querySelector(".sales-plot")!;
     fireEvent.change(monthSelect(), { target: { value: "06" } });
     fireEvent.click(screen.getByRole("radio", { name: "Stone", exact: true }));
     fireEvent.change(dailySelect(), { target: { value: "2026-07" } });
     expect(screen.getByText("Carregando competência diária…")).toBeTruthy();
-    expect(total()).toBe(before); expect(figure("Evolução mensal")).toBe(evolution); expect(figure("Panorama Gaúcha")).toBe(panorama); expect(figure("Composição Stone")).toBe(mix);
+    expect(total()).toBe(before); expect(figure("Evolução mensal")).toBe(evolution); expect(figure("Panorama Nexora")).toBe(panorama); expect(figure("Composição Stone")).toBe(mix);
     expect(screen.queryByText("Carregando dashboard…")).toBeNull();
     expect(api.salesDashboard).toHaveBeenLastCalledWith({ from: "2026-07-01", to: "2026-09-01", unit_ids: [A], scope: "combined", daily_month: "2026-07-01" });
     await act(async () => slow.resolve(multipleMonths("2026-07-01", true)));
