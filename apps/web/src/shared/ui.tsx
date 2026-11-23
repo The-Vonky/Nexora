@@ -162,8 +162,14 @@ export function Modal({
   const locked = busy || pending;
   useEffect(() => {
     const d = ref.current;
+    const opener = document.activeElement;
     d?.showModal();
-    return () => d?.close();
+    d?.querySelector<HTMLButtonElement>(".dialog-head button")?.focus({ preventScroll: true });
+    return () => {
+      d?.close();
+      // React pode retirar o dialog antes do cleanup; preserve o acionador.
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
+    };
   }, []);
   return (
     <dialog
@@ -184,7 +190,6 @@ export function Modal({
           icon="close"
           label="Fechar"
           className="ghost"
-          autoFocus
           disabled={locked}
           onClick={onClose}
         />
@@ -206,6 +211,8 @@ export function Confirm({
   onConfirm,
   onClose,
   tone = "danger",
+  confirmDisabled = false,
+  formatError = message,
 }: {
   title: string;
   description: string;
@@ -213,18 +220,24 @@ export function Confirm({
   onConfirm: () => Promise<void>;
   onClose: () => void;
   tone?: "danger" | "primary";
+  confirmDisabled?: boolean;
+  formatError?: (error: unknown) => string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const submitting = useRef(false);
   async function submit() {
+    if (submitting.current || confirmDisabled) return;
+    submitting.current = true;
     setBusy(true);
     setError("");
     try {
       await onConfirm();
       onClose();
     } catch (e) {
-      setError(message(e));
+      setError(formatError(e));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -237,7 +250,7 @@ export function Confirm({
         <button disabled={busy} onClick={onClose}>
           Cancelar
         </button>
-        <button className={tone} disabled={busy} onClick={() => void submit()}>
+        <button className={tone} disabled={busy || confirmDisabled} onClick={() => void submit()}>
           {busy ? "Salvando…" : "Confirmar"}
         </button>
       </div>
@@ -248,16 +261,23 @@ export function Form({
   children,
   onSave,
   onCancel,
+  saveDisabled = false,
+  formatError = message,
 }: {
   children: ReactNode;
   onSave: (data: FormData) => Promise<void>;
   onCancel: () => void;
+  saveDisabled?: boolean;
+  formatError?: (error: unknown) => string;
 }) {
   const setPending = useContext(PendingContext);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const submitting = useRef(false);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submitting.current || saveDisabled) return;
+    submitting.current = true;
     const data = new FormData(e.currentTarget);
     setBusy(true);
     setPending?.(true);
@@ -265,8 +285,9 @@ export function Form({
     try {
       await onSave(data);
     } catch (e) {
-      setError(message(e));
+      setError(formatError(e));
     } finally {
+      submitting.current = false;
       setBusy(false);
       setPending?.(false);
     }
@@ -280,7 +301,7 @@ export function Form({
           <button type="button" onClick={onCancel}>
             Cancelar
           </button>
-          <button className="primary" type="submit">
+          <button className="primary" type="submit" disabled={saveDisabled}>
             {busy ? "Salvando…" : "Salvar"}
           </button>
         </div>

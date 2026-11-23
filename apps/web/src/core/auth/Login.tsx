@@ -13,7 +13,7 @@ import { Icon } from "../../shared/icons";
 import { BrandMark } from "../../shared/brand";
 import "./Login.css";
 
-// Login v3 · Elo. Decorative loops meet on the seam
+// Login v3 · Elo. The two open loops of the Gaúcha mark meet on the seam
 // between the brand panel and the form: the orange loop frames the message,
 // the green loop holds the card. Page layout is pure CSS; the desktop loops
 // are fitted to the rendered card and headline (see useEloGeometry).

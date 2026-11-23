@@ -1,6 +1,7 @@
 name: Validate foundation
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
@@ -16,6 +17,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      # Decoder AUD-IMG-02: namespaces sem rede; sem fallback sem isolamento.
+      - name: Dependência de isolamento dos testes de imagem
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - run: npm test
       # Fictitious public values so the real application is bundled.
       # Not credentials: nothing is contacted during build and no deploy happens.
@@ -27,6 +31,40 @@ jobs:
       # Security gate covers production and development dependencies (including CI/test tools).
       # The PR #35 upgrade eliminated the previous 4 findings; fail on moderate or worse.
       - run: npm audit --audit-level=moderate
+  sales-integration:
+    strategy:
+      matrix:
+        suite: [operations, analytics, units, export, roles]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ven02-synthetic-ci
+          POSTGRES_DB: gaucha_sales_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gaucha_sales_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SALES_CI_DATABASE_URL: postgresql://postgres:ven02-synthetic-ci@127.0.0.1:5432/gaucha_sales_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Executa a mesma matriz de RPC/grants/RLS no PostgreSQL vazio deste job.
+      - run: npx vitest run tests/sales-${{ matrix.suite }}-database.test.ts
+      # Sessões independentes observam pg_blocking_pids, sem mocks de concorrência.
+      - if: matrix.suite == 'operations'
+        run: node tests/integration/sales-concurrency.mjs
   action-plans-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -38,6 +76,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # Aplicação/writer/download reais com transporte interceptado, sem banco.
+      - run: node tests/integration/sales-export-browser.mjs
+      - run: node tests/integration/announcements-browser.mjs
       # Disposable local services only; no linked project or deployment credentials.
       # Storage API is required by the evidence suite; imgproxy stays excluded.
       - run: npx --yes supabase@2.117.0 start -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
@@ -55,6 +96,10 @@ jobs:
       - run: node tests/integration/core-references.mjs
       # Core governance and logs: real JWT/PostgREST negative authorization matrix.
       - run: node tests/integration/core-security-matrix.mjs
+      # VEN-05A: JWT/PostgREST, paginação, concorrência e download XLSX real.
+      - run: node tests/integration/sales-export.mjs
+      # GG-10: usa o mesmo stack descartável; JWT/API e concorrência reais.
+      - run: node tests/integration/announcements-security.mjs
       # Admin UI at 375/768/1024/1440; adds uniquely tagged rows only, so it runs last.
       - run: node tests/integration/admin.mjs
       - if: always()

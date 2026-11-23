@@ -15,6 +15,9 @@ export const groupDescriptions: Partial<
   Qualidade:
     "Auditorias do checklist geral e o ciclo das ações corretivas, da execução à verificação de eficácia.",
   Custos: "Consumo valorizado por unidade e competência, com a Curva ABC do ERP e a calculada.",
+  Administrativo:
+    "Organize as atividades administrativas da empresa, consulte agendas, acompanhe solicitações e acesse os serviços internos em um só lugar.",
+  Comercial: "Lançamentos e acompanhamento gerencial de vendas por unidade e competência.",
   Administração: "Acessos, estrutura organizacional e registros do sistema.",
 };
 export type Destination = {
@@ -25,7 +28,7 @@ export type Destination = {
   icon: IconName;
   group: (typeof groups)[number];
   permissions: string[];
-  scope: "global" | "any";
+  scope: "global" | "unit" | "any";
   /** The destination owns sub-routes below its path. */
   nested?: boolean;
   /** Sub-pages shown as a collapsible branch below this item. */
@@ -35,9 +38,33 @@ export type Destination = {
 export type NavChild = {
   path: string;
   label: string;
+  permissions?: string[];
   children?: NavChild[];
 };
 export const destinations: Destination[] = [
+  {
+    path: "/sales",
+    label: "Vendas / Maquininhas",
+    description: "Visão gerencial e lançamentos diários Stone e PIX.",
+    icon: "costs",
+    group: "Comercial",
+    permissions: ["sales.dashboard.read", "sales.entry.read", "sales.entry.create", "sales.entry.edit", "sales.entry.delete"],
+    scope: "unit",
+    nested: true,
+    children: [
+      { path: "/sales/dashboard", label: "Visão geral", permissions: ["sales.dashboard.read"] },
+      { path: "/sales/entries", label: "Lançamentos", permissions: ["sales.entry.read", "sales.entry.create", "sales.entry.edit", "sales.entry.delete"] },
+    ],
+  },
+  {
+    path: "/rooms",
+    label: "Agendamento de Salas",
+    description: "Agenda da sala, solicitações e gestão de reservas.",
+    icon: "units",
+    group: "Administrativo",
+    permissions: ["room_booking.schedule.read", "room_booking.request.create", "room_booking.request.read_own", "room_booking.manage"],
+    scope: "global",
+  },
   {
     path: "/audit",
     label: "Auditorias",
@@ -75,6 +102,24 @@ export const destinations: Destination[] = [
       { path: "/abc/products", label: "Produtos" },
       { path: "/abc/categories", label: "Categorias" },
     ],
+  },
+  {
+    path: "/admin/announcements",
+    label: "Comunicados",
+    description: "Publicação e agendamento de comunicados institucionais.",
+    icon: "info",
+    group: "Administração",
+    permissions: ["announcements.notice.manage"],
+    scope: "global",
+  },
+  {
+    path: "/admin/feedback",
+    label: "Relatos e sugestões",
+    description: "Consulta interna de problemas e sugestões da equipe.",
+    icon: "logs",
+    group: "Administração",
+    permissions: ["feedback.report.read"],
+    scope: "global",
   },
   {
     path: "/admin/users",
@@ -141,9 +186,12 @@ export function visibleNavigation(active: boolean, grants: AccessGrant[]) {
           d.permissions.some((p) =>
             d.scope === "global"
               ? can(active, grants, p)
-              : hasAnyScope(active, grants, p),
+              : d.scope === "unit"
+                ? active && grants.some(g => g.permission === p && (g.scope_type === "global" || g.scope_type === "unit"))
+                : hasAnyScope(active, grants, p),
           ),
-      ),
+      ).map((d): Destination => ({ ...d, children: d.children?.filter(c => !c.permissions || c.permissions.some(p =>
+        active && grants.some(g => g.permission === p && (g.scope_type === "global" || g.scope_type === "unit")))) })),
     }))
     .filter((g) => g.destinations.length);
 }

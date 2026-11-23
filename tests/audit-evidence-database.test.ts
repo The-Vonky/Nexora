@@ -1,3 +1,4 @@
+import { createTestDatabase } from "./pglite";
 import { Postgres } from "./integration/postgres.mjs";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync, readdirSync } from "node:fs";
@@ -53,7 +54,7 @@ async function inspection(id: string) {
 beforeAll(async () => {
   db = process.env.AUDIT_TEST_DATABASE_URL
     ? (new Postgres(process.env.AUDIT_TEST_DATABASE_URL) as unknown as PGlite)
-    : new PGlite();
+    : createTestDatabase();
   // Minimal Supabase Auth contract; real PostgreSQL roles, grants, triggers and RLS.
   await db.exec(`create role anon nologin; create role authenticated nologin; create schema auth;
  create table auth.users(id uuid primary key, email text, email_confirmed_at timestamptz, raw_user_meta_data jsonb default '{}', last_sign_in_at timestamptz);
@@ -160,6 +161,25 @@ describe("Audit checklist evidence contract", { concurrent: false }, () =>{
   await expect(begin(foreign)).rejects.toMatchObject({code:"42501"});
   await login(users.reader);expect((await list(id)).length).toBe(1);
   await login(users.unitA,"anon");await expect(list(id)).rejects.toMatchObject({code:"42501"});
+ });
+ it("revoga leitura de imagem entre unidades, por inativação e por retirada do grant",async()=>{
+  const id=await draft();const b=await begin(id,"item-001","sintetica.jpg","image/jpeg",16);
+  await object(b.object_key,users.unitA,16,"image/jpeg");await confirm(b.evidence_id);
+  const allowed=()=>one("select audit_private.can_read_checklist_evidence_object($1) allowed",[b.object_key]);
+  expect(await allowed()).toMatchObject({allowed:true});
+  for(const change of [
+   ()=>db.query("update core.profiles set active=false where id=$1",[users.unitA]),
+   ()=>db.query("update core.user_role_assignments set unit_id=$1 where user_id=$2 and scope_type='unit'",[B,users.unitA]),
+   ()=>db.query("delete from core.user_role_assignments where user_id=$1",[users.unitA]),
+  ]){
+   await db.exec("reset role;begin");
+   try {
+    await db.query("select set_config('request.jwt.claim.sub',$1,false)",[users.admin]);
+    await change();await login(users.unitA);
+    expect(await allowed()).toMatchObject({allowed:false});expect(await list(id)).toEqual([]);
+   } finally { await db.exec("rollback;reset role"); }
+   await login(users.unitA);expect(await allowed()).toMatchObject({allowed:true});
+  }
  });
  it("edit-only may mutate independently of read",async()=>{
   const id=await draft();
@@ -284,5 +304,225 @@ describe("Audit checklist evidence contract", { concurrent: false }, () =>{
   expect(report).toEqual([{issue:"available_missing_object"},{issue:"expired_pending"},{issue:"orphan_object"}]);
   await login(users.unitA);await expect(confirm(b.evidence_id)).rejects.toMatchObject({code:"55000"});
   await expect(db.query("select * from audit_private.checklist_evidence_reconciliation()")).rejects.toMatchObject({code:"42501"});
+ });
+});
+
+// PostgreSQL/PGlite real para SQL/RLS; Storage/Auth são stubs, não prova da API self-hosted.
+describe('AUD-IMG-02: manifesto, fila e RLS em memória', { concurrent: false }, () => {
+ it.each(['a','b','uuid'] as const)('global_new processa duas auditorias novas, recupera só leases do corte e preserva o acervo (ordem %s)',async(order)=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");
+  const globalClaim=async()=>{await db.exec('reset role');return (await one<{job:{lease:string;evidence:{id:string}}|null}>('select audit_private.runtime_derivative_claim(null) job')).job;};
+  try{
+   const old=await png(),expired=await png();await db.exec('reset role');
+   await db.query("update audit.checklist_evidence_derivatives set state='processing',attempts=5,lease_id=gen_random_uuid(),lease_until=clock_timestamp()-interval '1 second' where evidence_id=$1",[expired.evidence_id]);
+   await login(users.unitA);const pending=await begin(old.inspection,'item-002','late.png','image/png',800);
+   await object(pending.object_key,users.unitA,800,'image/png');await confirm(pending.evidence_id);
+   const a=await png(),b=await png();await db.exec('reset role');
+   const archive=[old.evidence_id,expired.evidence_id,pending.evidence_id];
+   const fresh=[a.evidence_id,b.evidence_id];
+   // Tempos sintéticos explícitos: chamadas sequenciais podem cair no mesmo ms no PGlite.
+   // O corte SQL é inclusivo. Acervo fica 1 µs antes; uploads novos ficam exatamente no corte.
+   const {cutoff}=await one<{cutoff:string}>("select (clock_timestamp()-interval '1 minute')::text cutoff");
+   await db.exec('alter table audit.checklist_evidence disable trigger guard_checklist_evidence');
+   try{
+    await db.query("update audit.checklist_evidence set created_at=$1::timestamptz-case when id=any($2::uuid[]) then interval '1 microsecond' else interval '0' end where id=any($3::uuid[])",[cutoff,archive,[...archive,...fresh]]);
+   }finally{await db.exec('alter table audit.checklist_evidence enable trigger guard_checklist_evidence');}
+   await db.query("update audit.checklist_evidence_derivatives set created_at=$1::timestamptz-interval '1 microsecond' where evidence_id=any($2::uuid[])",[cutoff,[old.evidence_id,expired.evidence_id]]);
+   // A confirmação tardia cria job no corte, mas o início anterior deve excluí-lo.
+   await db.query("update audit.checklist_evidence_derivatives set created_at=$1::timestamptz where evidence_id=$2",[cutoff,pending.evidence_id]);
+   const expectedFirst=order==='uuid'?[...fresh].sort()[0]:order==='a'?a.evidence_id:b.evidence_id;
+   const expectedSecond=fresh.find(id=>id!==expectedFirst)!;
+   // Duas prioridades possíveis e empate total com desempate por UUID; nenhum FIFO implícito.
+   await db.query("update audit.checklist_evidence_derivatives set created_at=$1::timestamptz,next_attempt_at=$1::timestamptz+case when $2::boolean and evidence_id=$3::uuid then interval '1 microsecond' else interval '0' end where evidence_id=any($4::uuid[])",[cutoff,order!=='uuid',expectedSecond,fresh]);
+   const archiveRows=()=>rows('select to_jsonb(d) value from audit.checklist_evidence_derivatives d where evidence_id=any($1::uuid[]) order by evidence_id',[archive]);
+   const originals=()=>rows('select to_jsonb(e) value from audit.checklist_evidence e where id=any($1::uuid[]) order by id',[[...archive,...fresh]]);
+   const objects=()=>rows('select to_jsonb(o) value from storage.objects o order by id');
+   const before=await archiveRows(),originalsBefore=await originals(),objectsBefore=await objects();
+   await db.query("select set_config('audit_derivative.created_after',$1,true),set_config('audit_derivative.queue_mode','global_new',true)",[cutoff]);
+   const first=await globalClaim();expect(first?.evidence.id).toBe(expectedFirst);expect(await globalClaim()).toBeNull();
+   // Crash do one-shot: só depois de expirar a lease, sem duas execuções simultâneas.
+   await db.query("update audit.checklist_evidence_derivatives set lease_until=clock_timestamp()-interval '1 second' where evidence_id=$1",[expectedFirst]);
+   const retry=await globalClaim();expect(retry?.evidence.id).toBe(expectedFirst);expect(retry?.lease).not.toBe(first?.lease);
+   expect(await one('select audit_private.runtime_derivative_fail($1) ok',[first?.lease])).toEqual({ok:false});
+   expect(await one('select attempts from audit.checklist_evidence_derivatives where evidence_id=$1',[expectedFirst])).toEqual({attempts:2});
+   await db.query("select set_config('audit_derivative.failure_code','derivative_not_smaller',true)");
+   expect(await one('select audit_private.runtime_derivative_fail($1) ok',[retry?.lease])).toEqual({ok:true});
+   const second=await globalClaim();expect(second?.evidence.id).toBe(expectedSecond);
+   expect(new Set([first?.evidence.id,second?.evidence.id])).toEqual(new Set(fresh));
+   expect(await one('select attempts from audit.checklist_evidence_derivatives where evidence_id=$1',[expectedSecond])).toEqual({attempts:1});
+   expect(await one('select audit_private.runtime_derivative_fail($1) ok',[second?.lease])).toEqual({ok:true});expect(await globalClaim()).toBeNull();
+   expect(await rows("select state,attempts,error_code,lease_id,lease_until from audit.checklist_evidence_derivatives where evidence_id=any($1::uuid[])",[fresh])).toEqual(fresh.map(()=>({state:'failed',attempts:5,error_code:'derivative_not_smaller',lease_id:null,lease_until:null})));
+   expect(await archiveRows()).toEqual(before);expect(await originals()).toEqual(originalsBefore);expect(await objects()).toEqual(objectsBefore);
+   // Job elegível para o corte original permanece excluído por uma sessão com corte posterior.
+   await db.query("update audit.checklist_evidence_derivatives set state='pending',attempts=0,error_code=null where evidence_id=$1",[expectedFirst]);
+   await db.query("select set_config('audit_derivative.created_after',($1::timestamptz+interval '2 microseconds')::text,true)",[cutoff]);
+   expect(await globalClaim()).toBeNull();
+   await db.query("select set_config('audit_derivative.created_after',$1,true)",[cutoff]);
+   expect((await globalClaim())?.evidence.id).toBe(expectedFirst);
+  }finally{await db.exec('rollback;reset role');}
+ });
+ it.each(['derivative_dimensions_exceeded','derivative_invalid_image'])('encerra %s pela lease atual e preserva RLS',async(reason)=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");
+  try{
+   const fresh=await png();
+   await db.exec('reset role');
+   const {job}=await one<{job:{lease:string;evidence:{id:string}}}>('select audit_private.runtime_derivative_claim(null) job');
+   expect(job.evidence.id).toBe(fresh.evidence_id);
+   expect(await one('select attempts from audit.checklist_evidence_derivatives where evidence_id=$1',[fresh.evidence_id])).toEqual({attempts:1});
+   await db.query("select set_config('audit_derivative.failure_code',$1,true)",[reason]);
+   expect(await one('select audit_private.runtime_derivative_fail($1) ok',[uid(999)])).toEqual({ok:false});
+   expect(await one('select audit_private.runtime_derivative_fail($1) ok',[job.lease])).toEqual({ok:true});
+   expect(await one('select audit_private.runtime_derivative_claim(null) job')).toEqual({job:null});
+   await login(users.reader);
+   expect(await rows('select * from audit.checklist_evidence_thumbnail_state($1)',[fresh.evidence_id])).toEqual([{state:'failed',reason,retryable:false}]);
+   await login(users.inactive);
+   expect(await rows('select * from audit.checklist_evidence_thumbnail_state($1)',[fresh.evidence_id])).toEqual([]);
+  }finally{await db.exec('rollback;reset role');}
+ });
+ it('global_new exige corte explícito e rejeita filtros inválidos sem tocar a fila',async()=>{
+  for(const [mode,after,inspection] of [['global_new','',''],['global_new','infinity',''],['global_new','2099-01-01',''],['global_new','2026-01-01',A],['unknown','','']]){
+   await db.exec('reset role;begin');
+   try{
+    await db.query("select set_config('audit_derivative.queue_mode',$1,true),set_config('audit_derivative.created_after',$2,true),set_config('audit_derivative.inspection_id',$3,true)",[mode,after,inspection]);
+    await expect(claim()).rejects.toMatchObject({code:'42501'});
+   }finally{await db.exec('rollback;reset role');}
+  }
+ });
+ it('executor filtra uploads novos da auditoria, preserva outras filas e termina imagens sem ganho',async()=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");
+  try{
+   const old=await png();await db.exec('reset role');
+   const {cutoff}=await one<{cutoff:string}>('select clock_timestamp()::text cutoff');
+   const outside=await png();await login(users.unitA);
+   const fresh=await begin(old.inspection,'item-002','fresh.png','image/png',800);
+   await object(fresh.object_key,users.unitA,800,'image/png');await confirm(fresh.evidence_id);await db.exec('reset role');
+   await db.query("select set_config('audit_derivative.created_after',$1,true),set_config('audit_derivative.inspection_id',$2,true)",[cutoff,old.inspection]);
+   const job=await one<{job:{lease:string;evidence:{id:string}}}>('select audit_private.runtime_derivative_claim(null) job');
+   expect(job.job.evidence.id).toBe(fresh.evidence_id);
+   expect(await rows('select attempts,state from audit.checklist_evidence_derivatives where evidence_id=any($1::uuid[])',[ [old.evidence_id,outside.evidence_id] ])).toEqual([{attempts:0,state:'pending'},{attempts:0,state:'pending'}]);
+   await db.query("select set_config('audit_derivative.failure_code','derivative_not_smaller',true)");
+   expect(await one('select audit_private.runtime_derivative_fail($1) ok',[job.job.lease])).toEqual({ok:true});
+   await login(users.reader);
+   expect(await rows('select * from audit.checklist_evidence_thumbnail_state($1)',[fresh.evidence_id])).toEqual([{state:'failed',reason:'derivative_not_smaller',retryable:false}]);
+   expect(await rows('select * from audit.checklist_evidence_thumbnail($1)',[fresh.evidence_id])).toEqual([]);
+   for(const u of [users.empty,users.inactive,users.sector]){await login(u);expect(await rows('select * from audit.checklist_evidence_thumbnail_state($1)',[fresh.evidence_id])).toEqual([]);}
+   await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[users.admin]);
+   await db.query("update core.user_role_assignments set unit_id=$1 where user_id=$2 and scope_type='unit'",[B,users.unitA]);
+   await login(users.unitA);expect(await rows('select * from audit.checklist_evidence_thumbnail_state($1)',[fresh.evidence_id])).toEqual([]);
+   await login(users.unitA,'anon');await db.exec('savepoint anon_state');
+   await expect(db.query('select * from audit.checklist_evidence_thumbnail_state($1)',[fresh.evidence_id])).rejects.toMatchObject({code:'42501'});
+   await db.exec('rollback to anon_state');
+  }finally{await db.exec('rollback;reset role');}
+ });
+ const claim = async () => { await db.exec('reset role'); return (await one<{job:{lease:string; evidence:{id:string}}|null}>('select audit_private.claim_evidence_derivative() job')).job; };
+ const manifest = (e:{evidence_id:string;object_key:string}) => ({ evidence_id:e.evidence_id,original_object_key:e.object_key,
+  encoder_version:'img-480-v1',original_sha256:'a'.repeat(64),derived_sha256:'b'.repeat(64),
+  derived_object_key:`${e.evidence_id}/img-480-v1/${'a'.repeat(64)}/${'b'.repeat(64)}.png`,mime:'image/png',width:480,height:320,bytes:120 });
+ const prepare = (lease:string,m:unknown) => one<{ok:boolean}>('select audit_private.prepare_evidence_derivative($1,$2) ok',[lease,JSON.stringify(m)]);
+ const complete = (lease:string) => one<{ok:boolean}>('select audit_private.complete_evidence_derivative($1) ok',[lease]);
+ async function png() {
+  const inspection=await draft(); const e=await begin(inspection,'item-001','synthetic.png','image/png',800);
+  await object(e.object_key,users.unitA,800,'image/png'); await confirm(e.evidence_id);
+  return {...e,inspection};
+ }
+ async function ready() {
+  const e=await png();const job=await claim();expect(job?.evidence.id).toBe(e.evidence_id);
+  const m=manifest(e);expect(await prepare(job!.lease,m)).toEqual({ok:true});
+  await db.query("insert into storage.objects(bucket_id,name,metadata) values('audit-evidence-thumbnails',$1,jsonb_build_object('size',120,'mimetype','image/png'))",[m.derived_object_key]);
+  expect(await complete(job!.lease)).toEqual({ok:true});return {...e,m};
+ }
+ // Cada caso fica isolado em transação em memória; nenhuma exclusão em banco persistente.
+ it('bucket privado, EXECUTE técnico fechado e fila apenas após confirmação idempotente',async()=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");try{
+   expect(await one("select public,file_size_limit from storage.buckets where id='audit-evidence-thumbnails'")).toMatchObject({public:false,file_size_limit:1048576});
+   const inspection=await draft();const e=await begin(inspection,'item-001','synthetic.png','image/png',800);
+   await db.exec('reset role');expect(await rows('select * from audit.checklist_evidence_derivatives where evidence_id=$1',[e.evidence_id])).toEqual([]);
+   await object(e.object_key,users.unitA,800,'image/png');await confirm(e.evidence_id);await confirm(e.evidence_id);
+   await db.exec('reset role');expect((await rows('select * from audit.checklist_evidence_derivatives where evidence_id=$1',[e.evidence_id])).length).toBe(1);
+   for(const role of ['anon','authenticated']){
+    const functions=await rows("select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='audit_private' and p.proname in ('claim_evidence_derivative','prepare_evidence_derivative','complete_evidence_derivative','fail_evidence_derivative') and has_function_privilege($1,p.oid,'EXECUTE')",[role]);expect(functions).toEqual([]);
+   }
+   await login(users.unitA);await expect(db.query('select audit_private.claim_evidence_derivative()')).rejects.toMatchObject({code:'42501'});
+  }finally{await db.exec('rollback;reset role');}
+ });
+ it('claim serial, lease expirada, retry/backoff e CAS obsoleto',async()=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");try{
+   // Outros testes históricos confirmam só PDFs; este conjunto contém os únicos jobs JPEG/PNG.
+   const e=await png();const first=await claim();expect(first?.evidence.id).toBe(e.evidence_id);
+   expect(await claim()).toBeNull();
+   await db.query("update audit.checklist_evidence_derivatives set lease_until=clock_timestamp()-interval '1 second' where evidence_id=$1",[e.evidence_id]);
+   const retry=await claim();expect(retry?.lease).not.toBe(first?.lease);
+   expect(await complete(first!.lease)).toEqual({ok:false});
+   const second=await png();await db.exec('reset role');
+   expect(await one('select audit_private.fail_evidence_derivative($1) ok',[retry!.lease])).toEqual({ok:true});
+   expect(await one("select state,attempts,next_attempt_at>clock_timestamp() backoff from audit.checklist_evidence_derivatives where evidence_id=$1",[e.evidence_id])).toMatchObject({state:'failed',attempts:2,backoff:true});
+   const other=await claim();expect(other?.evidence.id).toBe(second.evidence_id);
+   await db.query('select audit_private.fail_evidence_derivative($1)',[other!.lease]);
+   await db.query("update audit.checklist_evidence_derivatives set next_attempt_at=clock_timestamp()-interval '1 second',attempts=5 where evidence_id=$1",[e.evidence_id]);
+   expect(await claim()).toBeNull();
+  }finally{await db.exec('rollback;reset role');}
+ });
+ it('ready exige reserva, objeto coerente e evidência disponível; ID/key manipulados negados',async()=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");try{
+   const e=await png();const job=await claim();const m=manifest(e);
+   expect(await complete(job!.lease)).toEqual({ok:false});
+   expect(await prepare(job!.lease,{...m,evidence_id:uid(99999)})).toEqual({ok:false});
+   // Erros são testados em savepoint para não abortar a transação da fixture.
+   await db.exec('savepoint invalid_key');
+   await expect(prepare(job!.lease,{...m,derived_object_key:'another/object'})).rejects.toMatchObject({code:'23514'});
+   await db.exec('rollback to invalid_key');
+   expect(await prepare(job!.lease,m)).toEqual({ok:true});expect(await complete(job!.lease)).toEqual({ok:false});
+   await db.query("insert into storage.objects(bucket_id,name,metadata) values('audit-evidence-thumbnails',$1,'{\"size\":119,\"mimetype\":\"image/png\"}')",[m.derived_object_key]);
+   expect(await complete(job!.lease)).toEqual({ok:false});
+   await login(users.unitA);await remove(e.evidence_id);await db.exec('reset role');
+   expect(await complete(job!.lease)).toEqual({ok:false});
+  }finally{await db.exec('rollback;reset role');}
+ });
+ it('RLS e helper da assinatura negam pending/failed, anônimo, outra unidade, inativo e setor; finalized legível',async()=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");try{
+   const e=await ready();expect(await claim()).toBeNull();
+   const access=()=>one<{ok:boolean}>('select audit_private.can_read_evidence_derivative($1) ok',[e.m.derived_object_key]);
+   const lookup=()=>rows('select * from audit.checklist_evidence_thumbnail($1)',[e.evidence_id]);
+   await login(users.unitA);expect(await access()).toEqual({ok:true});expect((await lookup()).length).toBe(1);
+   for(const u of [users.empty,users.inactive,users.sector]){await login(u);expect(await access()).toEqual({ok:false});expect(await lookup()).toEqual([]);expect(await rows('select * from audit.checklist_evidence_derivatives')).toEqual([]);expect(await rows("select * from storage.objects where bucket_id='audit-evidence-thumbnails'")).toEqual([]);}
+   await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[users.admin]);await db.query("update core.user_role_assignments set unit_id=$1 where user_id=$2 and scope_type='unit'",[B,users.unitA]);
+   await login(users.unitA);expect(await lookup()).toEqual([]);
+   await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[users.admin]);await db.query("update core.user_role_assignments set unit_id=$1 where user_id=$2 and scope_type='unit'",[A,users.unitA]);
+   await fill(e.inspection);await finalize(e.inspection,[e.evidence_id]);expect((await lookup()).length).toBe(1);
+   await db.query('select audit.reopen_inspection($1,2)',[e.inspection]);expect((await lookup()).length).toBe(1);
+   expect(await one('select version from audit.inspections where id=$1',[e.inspection])).toMatchObject({version:3});
+   await remove(e.evidence_id);expect(await lookup()).toEqual([]);expect(await access()).toEqual({ok:false});
+   await login(users.unitA,'anon');await db.exec('savepoint anon_access');
+   await expect(lookup()).rejects.toMatchObject({code:'42501'});await db.exec('rollback to anon_access');
+  }finally{await db.exec('rollback;reset role');}
+ });
+ it('grant revogado/inativação esvaziam leitura; objeto órfão/chave adulterada nunca liberados',async()=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");try{
+   const e=await ready();
+   await db.query("update core.profiles set active=false where id=$1",[users.unitA]);await login(users.unitA);
+   expect(await rows('select * from audit.checklist_evidence_thumbnail($1)',[e.evidence_id])).toEqual([]);
+   await db.exec('reset role');await db.query('update core.profiles set active=true where id=$1',[users.unitA]);
+   await db.query('delete from core.user_role_assignments where user_id=$1',[users.unitA]);await login(users.unitA);
+   expect(await rows('select * from audit.checklist_evidence_thumbnail($1)',[e.evidence_id])).toEqual([]);
+   await login(users.global);expect(await one("select audit_private.can_read_evidence_derivative('another/object') ok")).toEqual({ok:false});
+   await db.exec('reset role');await db.query("update audit.checklist_evidence_derivatives set state='failed' where evidence_id=$1",[e.evidence_id]);
+   await login(users.global);expect(await rows('select * from audit.checklist_evidence_thumbnail($1)',[e.evidence_id])).toEqual([]);
+  }finally{await db.exec('rollback;reset role');}
+ });
+ it('usuário comum não grava manifesto nem INSERT/UPDATE/DELETE/copy/move no bucket',async()=>{
+  await db.exec("reset role;begin;update audit.checklist_evidence_derivatives set state='failed',attempts=5,lease_id=null,lease_until=null");try{
+   const e=await ready();await login(users.unitA);
+   for(const sql of ["insert into storage.objects(bucket_id,name) values('audit-evidence-thumbnails','forged')",
+    "insert into audit.checklist_evidence_derivatives(evidence_id,encoder_version,original_object_key) values(gen_random_uuid(),'img-480-v1','forged')",
+    "update audit.checklist_evidence_derivatives set state='failed'"]){
+    await db.exec('savepoint forbidden');await expect(db.exec(sql)).rejects.toMatchObject({code:'42501'});await db.exec('rollback to forbidden');
+   }
+   expect(await rows("update storage.objects set name='moved' where name=$1 returning id",[e.m.derived_object_key])).toEqual([]);
+   expect(await rows('delete from storage.objects where name=$1 returning id',[e.m.derived_object_key])).toEqual([]);
+   // COPY usa INSERT; a policy restritiva nega mesmo com operação de Storage forjada.
+   await db.exec("select set_config('storage.operation','storage.object.copy',false);savepoint copy_denied");
+   await expect(db.exec("insert into storage.objects(bucket_id,name) values('audit-evidence-thumbnails','copy')")).rejects.toMatchObject({code:'42501'});
+   await db.exec('rollback to copy_denied');
+  }finally{await db.exec('rollback;reset role');}
  });
 });

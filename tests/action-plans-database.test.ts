@@ -1,3 +1,4 @@
+import { createTestDatabase } from "./pglite";
 import { Postgres } from "./integration/postgres.mjs";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync, readdirSync } from "node:fs";
@@ -170,7 +171,7 @@ beforeAll(async () => {
     ? (new Postgres(
         process.env.ACTION_PLANS_TEST_DATABASE_URL,
       ) as unknown as PGlite)
-    : new PGlite();
+    : createTestDatabase();
   await db.exec(`create role anon nologin; create role authenticated nologin; create schema auth;
  create table auth.users(id uuid primary key, email text, email_confirmed_at timestamptz, raw_user_meta_data jsonb default '{}', last_sign_in_at timestamptz);
  create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
@@ -237,7 +238,9 @@ describe("Action Plans database", { concurrent: false }, () => {
     );
     const criterion = (key: string) =>
       one<{ text: string }>(
-        "select text from audit.checklist_items where key=$1",
+        `select item.text from audit.checklist_items item
+         join audit.checklist_templates template on template.version=item.template_version
+         where template.active and item.key=$1`,
         [key],
       );
     expect(plans).toEqual([
@@ -577,7 +580,6 @@ describe("Action Plans database", { concurrent: false }, () => {
     });
     expect((await plan(id)).completed_at).not.toBeNull();
     await status(id, v, "in_progress");
-    v++;
     expect(await plan(id)).toMatchObject({
       completed_by: null,
       completed_at: null,
