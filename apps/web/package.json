@@ -7,7 +7,10 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
-    "poc:build": "vite build --mode ui-poc"
+    "poc:build": "vite build --mode ui-poc",
+    "build:demo": "npm run typecheck:demo && vite build --config vite.demo.config.ts",
+    "dev:demo": "vite --config vite.demo.config.ts",
+    "typecheck:demo": "tsc --noEmit -p demo/tsconfig.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.89.0",
