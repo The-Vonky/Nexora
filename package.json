@@ -10,6 +10,9 @@
   },
   "scripts": {
     "dev": "npm run dev -w apps/web",
+    "dev:local": "python3 -B infra/local/prepare-audit-imgproxy.py ensure && VITE_AUDIT_EVIDENCE_STORAGE_TRANSFORMS=true node scripts/dev.mjs",
+    "dev:identity": "VITE_NEXORA_IDENTITY_ENABLED=true VITE_AUDIT_EVIDENCE_STORAGE_TRANSFORMS=true npm run dev",
+    "dev:thumbnails": "node scripts/audit-derivative-dev.mjs",
     "typecheck": "npm run typecheck -w apps/web",
     "build": "npm run build -w apps/web",
     "verify:build": "node scripts/verify-build.mjs",
@@ -19,17 +22,21 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.3.14",
-    "@eslint/js": "^9.39.0",
+    "@eslint/js": "10.0.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
-    "eslint": "^9.39.0",
+    "eslint": "10.14.0",
     "fflate": "^0.8.3",
     "globals": "^16.5.0",
     "jsdom": "^26.1.0",
     "pg": "8.16.3",
     "playwright": "1.62.1",
     "read-excel-file": "9.3.10",
+    "sharp": "0.35.5",
     "typescript-eslint": "^8.48.0",
     "vitest": "5.0.4"
+  },
+  "overrides": {
+    "minimatch": "11.0.3"
   }
 }

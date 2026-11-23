@@ -95,3 +95,13 @@ O build pressupõe URL e publishable key de frontend configuradas; confira o wor
 - [Instruções para agentes](AGENTS.md), [Orientações Claude](CLAUDE.md), [Índice documental legado](docs/README.md).
 - Os documentos de `docs/` foram trazidos para **preservar o conhecimento técnico da origem**. URLs do repositório original, questões de hardware, nomes da empresa Gaúcha, decisões locais e evidências de CI/produção da origem **não são evidências operacionais da Nexora**.
 - Para mudanças daqui em diante, usar PRs e issues no repositório Nexora. Não editar o Gaúcha Gestão ao desenvolver a Nexora.
+
+## Sincronização candidata com Gaúcha Gestão — 23/11/2026
+
+A branch `feat/paridade-gaucha-20261123` contém uma **candidata de portabilidade de código** da base Gaúcha Gestão `cbdf8a9` para Nexora: Vendas/Maquininhas, Agendamento de Salas, Comunicados, Relatos/Sugestões, identidade/ciclo de senhas e evolução de Auditorias (evidências, imagens e exportações), além de 26 migrations incrementais. Também inclui testes e suporte ao ambiente local.
+
+**Atenção:** inclusão do código no repositório não significa que as migrations foram executadas no Supabase hospedado, que o serviço de identidade está implantado, nem que os módulos foram homologados ou publicados no Render. Não aplicar `db reset` em ambiente persistente. Verificar backup restaurável, histórico de migrations, privilégios/RLS, configuração Auth/Storage e testes de integração antes de qualquer promoção. O backend de origem Gaúcha não deve ser conectado à Nexora.
+
+O frontend mantém `isNexoraBackendUrl` e branding próprio. O ciclo privilegiado de identidade permanece opt-in por `VITE_NEXORA_IDENTITY_ENABLED=false` até haver backend Nexora devidamente testado; as transformações de imagem também permanecem desabilitadas por padrão.
+
+As operações e configurações específicas da C30 e da rede Gaúcha não são instruções de implantação da Nexora. A release só pode ser anunciada como operacional após verificação independente e aceite da infraestrutura Nexora. Consulte o relatório em `docs/development/NEXORA_PARIDADE_GAUCHA_20261123.md`.

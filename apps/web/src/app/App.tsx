@@ -1,4 +1,4 @@
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import {
   BrowserRouter,
   Link,
@@ -10,14 +10,9 @@ import {
 import { client } from "../core/client";
 import { AuthProvider, useAuth } from "../core/auth/AuthProvider";
 import { Login } from "../core/auth/Login";
-import { OrganizationPage } from "../core/admin/OrganizationPage";
-import { UsersPage } from "../core/admin/UsersPage";
-import { RolesPage } from "../core/admin/RolesPage";
-import { PermissionsPage } from "../core/admin/PermissionsPage";
-import { LogsPage } from "../core/admin/LogsPage";
-import { AuditModule } from "../modules/audit/AuditModule";
-import { ActionPlansModule } from "../modules/action-plans/ActionPlansModule";
-import { AbcModule } from "../modules/abc/AbcModule";
+import { FirstPassword } from "../core/auth/FirstPassword";
+import { loadPublishedNotices, noPublishedNotices } from "../modules/announcements/api";
+import { FeedbackButton, FeedbackEntry } from "../modules/feedback/FeedbackEntry";
 import { BrandMark, Loader } from "../shared/brand";
 import { Icon } from "../shared/icons";
 import { Drawer, EmptyState, IconButton, Notice } from "../shared/ui";
@@ -28,7 +23,22 @@ import {
   type Destination,
   type NavChild,
 } from "./navigation";
+import { AnnouncementLayout } from "./AnnouncementLayout";
 import "./shell.css";
+
+const OrganizationPage = lazy(() => import("../core/admin/OrganizationPage").then(module => ({ default: module.OrganizationPage })));
+const UsersPage = lazy(() => import("../core/admin/UsersPage").then(module => ({ default: module.UsersPage })));
+const RolesPage = lazy(() => import("../core/admin/RolesPage").then(module => ({ default: module.RolesPage })));
+const PermissionsPage = lazy(() => import("../core/admin/PermissionsPage").then(module => ({ default: module.PermissionsPage })));
+const LogsPage = lazy(() => import("../core/admin/LogsPage").then(module => ({ default: module.LogsPage })));
+const AuditModule = lazy(() => import("../modules/audit/AuditModule").then(module => ({ default: module.AuditModule })));
+const ActionPlansModule = lazy(() => import("../modules/action-plans/ActionPlansModule").then(module => ({ default: module.ActionPlansModule })));
+const RoomsPage = lazy(() => import("../modules/rooms/RoomsPage").then(module => ({ default: module.RoomsPage })));
+const AbcModule = lazy(() => import("../modules/abc/AbcModule").then(module => ({ default: module.AbcModule })));
+const AnnouncementsPage = lazy(() => import("../modules/announcements/AnnouncementsPage").then(module => ({ default: module.AnnouncementsPage })));
+const FeedbackPage = lazy(() => import("../modules/feedback/FeedbackPage").then(module => ({ default: module.FeedbackPage })));
+const SalesModule = lazy(() => import("../modules/sales/SalesModule").then(module => ({ default: module.SalesModule })));
+
 function Logout({ compact = false }: { compact?: boolean }) {
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,6 +83,14 @@ function Boundary() {
       </main>
     );
   if (!auth.session) return <Login />;
+  if (auth.identity?.passwordChangeRequired) return <FirstPassword key={auth.session.user.id} token={auth.session.access_token} />;
+  if (!auth.profile?.active || auth.error) return <AnnouncementLayout loadConfig={noPublishedNotices}><AuthenticatedBoundary /></AnnouncementLayout>;
+  return <FeedbackEntry key={auth.session.user.id}>
+    <AnnouncementLayout loadConfig={loadPublishedNotices}><AuthenticatedBoundary /></AnnouncementLayout>
+  </FeedbackEntry>;
+}
+function AuthenticatedBoundary() {
+  const auth = useAuth();
   if (auth.error)
     return (
       <main className="center-state">
@@ -334,6 +352,7 @@ function Avatar({ name }: { name?: string }) {
 }
 function Breadcrumbs({ current }: { current?: Destination }) {
   const { pathname } = useLocation();
+  const salesChild = current?.path === "/sales" ? current.children?.find(c => c.path === pathname) : undefined;
   return (
     <nav className="crumbs" aria-label="Você está em">
       <ol>
@@ -356,6 +375,7 @@ function Breadcrumbs({ current }: { current?: Destination }) {
                 <Link to={current.path}>{current.label}</Link>
               )}
             </li>
+            {salesChild && <li><span aria-current="page">{salesChild.label}</span></li>}
           </>
         )}
       </ol>
@@ -498,9 +518,13 @@ function Shell() {
     document.getElementById("main")?.focus({ preventScroll: true });
   }, [location.pathname]);
   const pages: Record<string, ReactNode> = {
+    "/sales": <SalesModule />,
     "/audit": <AuditModule />,
     "/action-plans": <ActionPlansModule />,
     "/abc": <AbcModule />,
+    "/rooms": <RoomsPage />,
+    "/admin/feedback": <FeedbackPage />,
+    "/admin/announcements": <AnnouncementsPage key={auth.session?.user.id} />,
     "/admin/users": <UsersPage />,
     "/admin/roles": <RolesPage />,
     "/admin/permissions": <PermissionsPage />,
@@ -509,7 +533,7 @@ function Shell() {
     "/admin/sectors": <OrganizationPage key="sectors" kind="sectors" />,
     "/admin/logs": <LogsPage />,
   };
-  const current = destinations.find(
+  const current = [...destinations].sort((a, b) => b.path.length - a.path.length).find(
     (d) =>
       location.pathname === d.path ||
       location.pathname.startsWith(`${d.path}/`),
@@ -546,36 +570,39 @@ function Shell() {
             </span>
           </Link>
           <Breadcrumbs current={current} />
+          <FeedbackButton />
           <span className="topbar-avatar">
             <Avatar name={auth.profile?.display_name} />
           </span>
         </header>
         <main id="main" tabIndex={-1}>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            {destinations.map((d) => (
+          <Suspense fallback={<Loader label="Carregando página…" />}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              {destinations.map((d) => (
+                <Route
+                  key={d.path}
+                  path={d.nested ? `${d.path}/*` : d.path}
+                  element={<Guard path={d.path}>{pages[d.path]}</Guard>}
+                />
+              ))}
               <Route
-                key={d.path}
-                path={d.nested ? `${d.path}/*` : d.path}
-                element={<Guard path={d.path}>{pages[d.path]}</Guard>}
+                path="*"
+                element={
+                  <EmptyState
+                    title="Página não encontrada"
+                    actions={
+                      <Link className="button-link" to="/">
+                        Voltar ao início
+                      </Link>
+                    }
+                  >
+                    O endereço acessado não existe ou foi movido.
+                  </EmptyState>
+                }
               />
-            ))}
-            <Route
-              path="*"
-              element={
-                <EmptyState
-                  title="Página não encontrada"
-                  actions={
-                    <Link className="button-link" to="/">
-                      Voltar ao início
-                    </Link>
-                  }
-                >
-                  O endereço acessado não existe ou foi movido.
-                </EmptyState>
-              }
-            />
-          </Routes>
+            </Routes>
+          </Suspense>
         </main>
       </div>
       {drawer && (

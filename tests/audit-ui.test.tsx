@@ -12,6 +12,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { privateImages } from "../apps/web/src/shared/privateImageCache";
 import { ChecklistEvidence } from "../apps/web/src/modules/audit/ChecklistEvidence";
 import type { EvidenceController } from "../apps/web/src/modules/audit/useChecklistEvidence";
 import { InspectionPage } from "../apps/web/src/modules/audit/InspectionPage";
@@ -22,6 +23,7 @@ import { NewInspection } from "../apps/web/src/modules/audit/NewInspection";
 import { visibleNavigation } from "../apps/web/src/app/navigation";
 import type {
   Answer,
+  ChecklistEvidence as EvidenceRow,
   InspectionSummary,
 } from "../apps/web/src/modules/audit/types";
 const api = vi.hoisted(() => ({
@@ -37,7 +39,7 @@ const api = vi.hoisted(() => ({
   createInspection: vi.fn(),
 }));
 vi.mock("../apps/web/src/modules/audit/api", () => api);
-const evidenceApi=vi.hoisted(()=>({listEvidence:vi.fn(async()=>[]),pendingCount:vi.fn(async()=>0),beginUpload:vi.fn(),finishUpload:vi.fn(),removeEvidence:vi.fn(),downloadEvidence:vi.fn(),downloadUrl:vi.fn(async()=>"https://storage.test/image?token=test"),evidenceMessage:vi.fn(()=> "Envio falhou"),retryable:vi.fn(()=>true),ACCEPT:".pdf",FORMATS_HINT:"PDF",formatSize:vi.fn(()=> "1 KB"),typeLabel:vi.fn(()=> "PDF")}));
+const evidenceApi=vi.hoisted(()=>({listEvidence:vi.fn(async():Promise<EvidenceRow[]>=>[]),pendingCount:vi.fn(async()=>0),beginUpload:vi.fn(),finishUpload:vi.fn(),removeEvidence:vi.fn(),downloadEvidence:vi.fn(),downloadUrl:vi.fn(async()=>"https://storage.test/image?token=test"),evidenceMessage:vi.fn(()=> "Envio falhou"),retryable:vi.fn(()=>true),ACCEPT:".pdf",FORMATS_HINT:"PDF",formatSize:vi.fn(()=> "1 KB"),typeLabel:vi.fn(()=> "PDF")}));
 vi.mock("../apps/web/src/modules/audit/evidence",()=>evidenceApi);
 const plansApi = vi.hoisted(() => ({ summaries: vi.fn(async () => [] as unknown[]) }));
 vi.mock("../apps/web/src/modules/action-plans/api", () => plansApi);
@@ -58,6 +60,8 @@ beforeAll(() => {
 });
 afterEach(() => {
   cleanup();
+  privateImages.setAccess("");
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
   permissions.allowed = true;
   evidenceApi.listEvidence.mockResolvedValue([]);
@@ -83,6 +87,11 @@ const answer = (item_key: string, response: Answer["response"]): Answer => ({
   version: 1,
   updated_at: "",
   updated_by: null,
+});
+const evidenceRow = (id: number, item_key = "item-001"): EvidenceRow => ({
+  id: String(id).padStart(2, "0"), inspection_id: "i1", item_key, object_key: `i1/${id}`,
+  original_name: `arquivo-${id}.pdf`, content_type: "application/pdf", size_bytes: 10,
+  created_by: "u", uploaded_by_name: "Ana", uploaded_at: "2026-09-24T12:00:00Z",
 });
 function summary(over: Partial<InspectionSummary> = {}): InspectionSummary {
   return {
@@ -607,6 +616,52 @@ describe("inspection page", () => {
     expect(screen.getAllByRole("button", { name: "Evidências" })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /Evidências \(0\)/ })).toBeNull();
   });
+  it.each([0, 1, 5])("shows %s overview files without an expansion button", async (count) => {
+    evidenceApi.listEvidence.mockResolvedValue(Array.from({ length: count }, (_, index) => evidenceRow(index)));
+    setup(summary(), [], undefined, "/audit/inspections/i1");
+    const panel = within(await screen.findByRole("region", { name: `Evidências ${count}` }));
+    expect(panel.getByRole("heading", { level: 2 }).textContent).toBe(`Evidências ${count}`);
+    expect(panel.queryAllByRole("button", { name: /^Baixar Evidência/ })).toHaveLength(count);
+    expect(panel.queryByRole("button", { name: "Ver mais evidências" })).toBeNull();
+    if (!count) {
+      expect(panel.getByText("Nenhuma evidência anexada a esta auditoria.")).toBeTruthy();
+      expect(panel.queryByRole("combobox")).toBeNull();
+    }
+  });
+  it("paginates by file and resets on filter change while keeping the checklist names", async () => {
+    const user = userEvent.setup();
+    const firstCriterion = Array.from({ length: 6 }, (_, index) => evidenceRow(index + 1));
+    const thirdCriterion = Array.from({ length: 6 }, (_, index) => evidenceRow(index + 7, "item-003"));
+    evidenceApi.listEvidence.mockResolvedValue([...thirdCriterion, ...firstCriterion].reverse());
+    setup(summary(), items.map((item) => answer(item.key, null)), undefined, "/audit/inspections/i1");
+    const panel = within(await screen.findByRole("region", { name: "Evidências 12" }));
+    const filter = panel.getByRole("combobox", { name: "Filtrar por critério" });
+    const files = () => panel.getAllByRole("button", { name: /^Baixar Evidência/ });
+    expect(panel.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Todos os critérios", "Critério 1", "Critério 3",
+    ]);
+    expect(files()).toHaveLength(5);
+    expect(panel.queryByRole("heading", { name: "Critério 3" })).toBeNull();
+    await user.click(panel.getByRole("button", { name: "Ver mais evidências" }));
+    expect(files()).toHaveLength(10);
+    await user.selectOptions(filter, "item-003");
+    expect(files()).toHaveLength(5);
+    expect(panel.getByRole("status").textContent).toBe("Exibindo 5 de 6 evidências");
+    expect(panel.queryByRole("heading", { name: "Critério 1" })).toBeNull();
+    await user.click(panel.getByRole("button", { name: "Ver mais evidências" }));
+    const sixth = panel.getByRole("button", { name: "Baixar Evidência 6.pdf" });
+    await user.click(sixth);
+    expect(evidenceApi.downloadEvidence).toHaveBeenLastCalledWith(thirdCriterion[5], "arquivo-12.pdf");
+    await user.click(panel.getByRole("button", { name: "Ver menos evidências" }));
+    expect(files()).toHaveLength(5);
+    expect(evidenceApi.listEvidence).toHaveBeenCalledTimes(1);
+    expect(evidenceApi.downloadUrl).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("link", { name: /Checklist/ }));
+    await user.click(await screen.findByRole("button", { name: /^Seção 2:/ }));
+    await user.click(screen.getByRole("button", { name: "Evidências (6)" }));
+    await user.click(screen.getByRole("button", { name: "Baixar Evidência 6.pdf" }));
+    expect(evidenceApi.downloadEvidence).toHaveBeenLastCalledWith(thirdCriterion[5], "Evidência 6.pdf");
+  });
   it("hides the action plan tab without action_plan.read", async () => {
     permissions.allowed = false;
     setup(summary(), [answer("item-001", null), answer("item-002", null), answer("item-003", null)], undefined, "/audit/inspections/i1");
@@ -821,7 +876,15 @@ describe("Checklist evidence removal errors", () => {
     expect(screen.getByText("Evidência 2.xlsx")).toBeTruthy();
     expect(screen.queryByRole("img")).toBeNull();
   });
-  it("loads images only when visible, refreshes modal URLs and handles errors and all close controls", async () => {
+  it("reutiliza imagem entre referências, fechamento/reabertura e modal; permite retry após falha", async () => {
+    privateImages.setAccess("synthetic-session");
+    Object.defineProperty(URL,"createObjectURL",{value:vi.fn(()=>"blob:synthetic"),configurable:true});
+    Object.defineProperty(URL,"revokeObjectURL",{value:vi.fn(),configurable:true});
+    vi.stubGlobal("fetch",vi.fn(async()=>new Response(new Uint8Array(10),{headers:{"Content-Type":"image/jpeg"}})));
+    vi.stubGlobal("IntersectionObserver",class {
+      constructor(private callback: (entries: {isIntersecting:boolean}[])=>void) {}
+      observe(){this.callback([{isIntersecting:true}]);} disconnect(){}
+    });
     const row = { id: "image", inspection_id: "i1", item_key: "item-001", object_key: "image-key",
       original_name: "photo.jpg", content_type: "image/jpeg", size_bytes: 10,
       created_by: "u", uploaded_by_name: "Ana", uploaded_at: "2026-09-30T12:00:00Z" };
@@ -830,7 +893,7 @@ describe("Checklist evidence removal errors", () => {
     const {rerender}=render(<ChecklistEvidence item={items[0]} editable={false} controller={controller} visible={false}/>);
     expect(evidenceApi.downloadUrl).not.toHaveBeenCalled();
     rerender(<ChecklistEvidence item={items[0]} editable={false} controller={controller}/>);
-    expect(await screen.findByRole("img",{name:"Evidência 1.jpg"})).toBeTruthy();
+    fireEvent.load(await screen.findByRole("img",{name:"Evidência 1.jpg"}));
     for(const close of ["button","escape","backdrop"]){
       await userEvent.click(screen.getByRole("button",{name:"Ampliar Evidência 1.jpg"}));
       const modal=screen.getByRole("dialog");
@@ -842,12 +905,42 @@ describe("Checklist evidence removal errors", () => {
       else fireEvent.click(modal);
       expect(screen.queryByRole("dialog")).toBeNull();
     }
-    expect(evidenceApi.downloadUrl).toHaveBeenCalledTimes(4);
+    rerender(<ChecklistEvidence item={items[0]} editable={false} controller={{...controller,rows:[{...row}]}}/>);
+    expect(evidenceApi.downloadUrl).toHaveBeenCalledTimes(1);
+    rerender(<ChecklistEvidence item={items[0]} editable={false} controller={controller} visible={false}/>);
+    rerender(<ChecklistEvidence item={items[0]} editable={false} controller={controller}/>);
+    const reopened=await screen.findByRole("img");
+    expect(reopened.getAttribute("loading")).toBe("lazy");
+    expect(reopened.getAttribute("decoding")).toBe("async");
+    expect(reopened.getAttribute("width")).toBe("88");
+    expect(evidenceApi.downloadUrl).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
     fireEvent.error(screen.getByRole("img"));
-    expect(screen.getByText("Imagem indisponível.")).toBeTruthy();
+    expect(screen.getByText("Imagem indisponível ou expirada.")).toBeTruthy();
     await userEvent.click(screen.getByRole("button",{name:"Tentar novamente"}));
     expect(await screen.findByRole("img")).toBeTruthy();
+    expect(evidenceApi.downloadUrl).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("button",{name:/Remover/})).toBeNull();
+  });
+  it("não assina imagens fora do viewport e ignora resposta anterior após logout", async () => {
+    privateImages.setAccess("synthetic-session");
+    let intersect!: (entries:{isIntersecting:boolean}[])=>void;
+    vi.stubGlobal("IntersectionObserver",class {
+      constructor(callback: typeof intersect){intersect=callback;} observe(){} disconnect(){}
+    });
+    let release!: (url:string)=>void;
+    evidenceApi.downloadUrl.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+    const row={id:"image",inspection_id:"i1",item_key:"item-001",object_key:"key",original_name:"image.jpg",content_type:"image/jpeg",size_bytes:10,created_by:"u",uploaded_by_name:"Sintético",uploaded_at:"2026-11-04"};
+    const controller:EvidenceController={data:undefined,error:"",loading:false,uploads:{},reload:vi.fn(),send:vi.fn(),retry:vi.fn(),discard:vi.fn(),rows:[row]};
+    render(<ChecklistEvidence item={items[0]} editable={false} controller={controller}/>);
+    expect(evidenceApi.downloadUrl).not.toHaveBeenCalled();
+    act(()=>intersect([{isIntersecting:false}]));
+    expect(evidenceApi.downloadUrl).not.toHaveBeenCalled();
+    act(()=>intersect([{isIntersecting:true}]));
+    await waitFor(()=>expect(evidenceApi.downloadUrl).toHaveBeenCalledTimes(1));
+    act(()=>privateImages.setAccess(""));
+    await act(async()=>release("https://storage.test/synthetic"));
+    expect(screen.queryByRole("img")).toBeNull();
   });
   it.each([
     ["55000", "Esta operação não é permitida no estado atual do registro."],

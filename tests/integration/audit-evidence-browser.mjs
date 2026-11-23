@@ -4,9 +4,14 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
+import sharp from "sharp";
+import { randomBytes } from "node:crypto";
+import { attachAuditTraffic } from "./audit-evidence-traffic.mjs";
+import { assertEvidenceLayout, evidenceViewportWidths } from "./audit-evidence-layout.mjs";
 import { assert, config, db, password, users, BUCKET, PDF, bytes, blob, must, fails, api, list, row, inspection, fill, begin, upload, confirm, attach, countEvents, state, service } from "./audit-evidence-fixture.mjs";
 
 export async function runBrowser() {
+  const native = process.env.GG_TEST_AUDIT_STORAGE_TRANSFORMS === "true";
   state.phase = "Chromium real file flow";
   // Chromium against the compiled application and real local API at desktop and 375px.
   const port = await new Promise((done, fail) => {
@@ -21,7 +26,8 @@ export async function runBrowser() {
   const outDir = mkdtempSync(join(tmpdir(), "audit-evidence-e2e-"));
   const vite = (args, stdio) => spawn(process.execPath, [resolve("node_modules/vite/bin/vite.js"), ...args], {
     cwd: "apps/web",
-    env: { ...process.env, VITE_SUPABASE_URL: config.API_URL, VITE_SUPABASE_PUBLISHABLE_KEY: config.ANON_KEY },
+    env: { ...process.env, VITE_SUPABASE_URL: config.API_URL, VITE_SUPABASE_PUBLISHABLE_KEY: config.ANON_KEY,
+      VITE_AUDIT_EVIDENCE_STORAGE_TRANSFORMS: String(native) },
     stdio,
   });
   const build = vite(["build", "--outDir", outDir, "--emptyOutDir"], "inherit");
@@ -101,7 +107,7 @@ export async function runBrowser() {
       // space (no overlap), stacking when the panel is narrow.
       checkpoint("overview layout");
       await page.getByRole("link", { name: "Visão geral", exact: true }).click();
-      const overviewFile = page.locator(".audit-overview-file").filter({ hasText: name });
+      const overviewFile = page.locator(".audit-overview-file").filter({ hasText: "Evidência 1.pdf" });
       for (const size of [375, 768, 1024, 1440]) {
         await page.setViewportSize({ width: size, height: 812 });
         await overviewFile.waitFor();
@@ -315,6 +321,109 @@ export async function runBrowser() {
       await section.getByRole("button", { name: "Baixar Evidência 2.pdf", exact: true }).waitFor();
       assert.equal((await list("ui", uiInspection)).length, 3);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Reopened evidence fits viewport");
+      // AUD-IMG-01: bytes sintéticos; preservar download original e reutilizar prévia no modal.
+      checkpoint("image cache reuse");
+      const traffic=await attachAuditTraffic(page,{appOrigin:origin,storageOrigin:config.API_URL});
+      try {
+        traffic.stage("upload");
+        const original=native
+          ? await sharp(randomBytes(960*640*3),{raw:{width:960,height:640,channels:3}}).png().toBuffer()
+          : Buffer.from(await page.evaluate(()=>{
+            const canvas=document.createElement("canvas");canvas.width=960;canvas.height=640;
+            const drawing=canvas.getContext("2d");drawing.fillStyle="#fff";drawing.fillRect(0,0,960,640);
+            drawing.fillStyle="#111";drawing.font="32px sans-serif";drawing.fillText("EVIDENCIA SINTETICA 0123456789",40,80);
+            return Array.from(Uint8Array.from(atob(canvas.toDataURL("image/png").split(",")[1]),character=>character.charCodeAt(0)));
+          }));
+        await input.setInputFiles({name:"sintetica.png",mimeType:"image/png",buffer:original});
+        const imageFile=section.locator(".file-item").filter({has:page.getByRole("button",{name:"Baixar Evidência 3.png",exact:true})});
+        const image=imageFile.getByRole("img");
+        await imageFile.scrollIntoViewIfNeeded();await image.waitFor();
+        await image.evaluate(element=>element.decode());
+        const previewCategory=native ? "thumbnail-get" : "image-get";
+        const requests=(await traffic.snapshot()).requests;
+        const previews=requests.filter(request=>request.category===previewCategory);
+        const initial=previews.length;
+        assert.equal(initial,1,"Uma transferência da prévia");
+        if(native){
+          const preview=previews[0];
+          assert.deepEqual(await image.evaluate(element=>[element.naturalWidth,element.naturalHeight]),[480,320]);
+          assert.equal(requests.filter(request=>request.category==="image-get").length,0,"Lista não pede original");
+          assert.equal(preview.status,200);
+          assert.equal(preview.cache,false);
+          assert.ok(preview.headers.cacheControl.includes("private")&&preview.headers.cacheControl.includes("no-store"));
+          assert.ok(preview.bodyBytes>0&&preview.bodyBytes<original.length);
+          console.log(`AUD-IMG-02 Chromium ${width}px: ${preview.bodyBytes} bytes na miniatura; ${original.length} no original`);
+        }
+        const enlarge = imageFile.getByRole("button", { name: "Ampliar Evidência 3.png", exact: true });
+        if (width === 1280) {
+          await enlarge.hover();
+          assert.equal(await enlarge.evaluate(button => getComputedStyle(button).backgroundColor), "rgba(0, 0, 0, 0)");
+          await imageFile.getByRole("button", { name: "Baixar Evidência 3.png", exact: true }).hover();
+          await enlarge.focus();
+          await page.keyboard.press("Tab");
+          await page.keyboard.press("Shift+Tab");
+          assert.ok(await enlarge.evaluate(button => button.matches(":focus-visible")));
+        }
+        traffic.stage("modal");
+        if (width === 1280) await enlarge.press("Enter");
+        else await enlarge.tap();
+        const modal=page.getByRole("dialog");await modal.getByRole("img").evaluate(element=>element.decode());
+        assert.equal(await modal.getByRole("img").getAttribute("src")===await image.getAttribute("src"),!native);
+        if(native)assert.deepEqual(await modal.getByRole("img").evaluate(element=>[element.naturalWidth,element.naturalHeight]),[960,640]);
+        await modal.getByRole("button",{name:"Fechar",exact:true}).click();
+        traffic.stage("revisit");
+        const toggle=page.locator('li.audit-item:has([aria-label="Evidências do critério 1"]) .audit-evidence-toggle');
+        await toggle.click();await openEvidence();await imageFile.scrollIntoViewIfNeeded();
+        await image.waitFor();await image.evaluate(element=>element.decode());
+        const revisited=(await traffic.snapshot()).requests;
+        assert.equal(revisited.filter(request=>request.category===previewCategory).length,initial,"Revisita reutiliza o cache privado");
+        if(native)assert.equal(revisited.filter(request=>request.category==="image-get").length,1,"Somente o modal pediu o original");
+        traffic.stage("download");
+        const [originalDownload]=await Promise.all([page.waitForEvent("download"),imageFile.getByRole("button",{name:"Baixar Evidência 3.png",exact:true}).click()]);
+        assert.ok(readFileSync(await originalDownload.path()).equals(original),"Download preserva bytes PNG");
+        assert.equal(originalDownload.suggestedFilename(),"Evidência 3.png");
+        if (width === 1280) {
+          const criterion = page.locator(".audit-item").filter({ has: imageFile });
+          const observation = criterion.getByRole("textbox", { name: "Observação" });
+          await observation.fill("Verificação do indicador de salvamento com evidências abertas.");
+          await observation.press("Tab");
+          await criterion.getByText("Salvo", { exact: true }).waitFor();
+          for (const size of evidenceViewportWidths) {
+            checkpoint(`checklist evidence layout ${size}px`);
+            await page.setViewportSize({ width: size, height: 812 });
+            await imageFile.scrollIntoViewIfNeeded();
+            await image.waitFor();
+            await assertEvidenceLayout(imageFile);
+          }
+          const { object_key: objectKey } = (await list("ui", uiInspection)).find(row => row.content_type === "image/png");
+          const previewRoute = native ? "/render/image/sign/" : "/object/sign/";
+          const isPreview = url => url.origin === config.API_URL &&
+            url.pathname === `/storage/v1${previewRoute}${BUCKET}/${objectKey}`;
+          await page.route(isPreview, route => route.request().method() === "GET"
+            ? route.fulfill({ status: 503, headers: { "Access-Control-Allow-Origin": "*" } })
+            : route.continue());
+          await image.dispatchEvent("error");
+          for (const size of evidenceViewportWidths) {
+            checkpoint(`checklist evidence fallback layout ${size}px`);
+            // Reabra na largura alvo para medir a falha desta requisição, após a entrada no viewport.
+            await toggle.click();
+            await page.setViewportSize({ width: size, height: 812 });
+            await Promise.all([
+              page.waitForResponse(response => response.status() === 503 &&
+                response.request().method() === "GET" && isPreview(new URL(response.url()))),
+              (async () => {
+                await openEvidence();
+                await imageFile.scrollIntoViewIfNeeded();
+              })(),
+            ]);
+            await imageFile.getByText(native ? "Miniatura indisponível." : "Imagem indisponível ou expirada.", { exact: true }).waitFor();
+            assert.equal(await imageFile.getByRole("button", { name: "Ampliar Evidência 3.png" }).count(), 0);
+            if (native) await imageFile.getByRole("button", { name: "Abrir original", exact: true }).waitFor();
+            await assertEvidenceLayout(imageFile, { preview: false });
+          }
+          await page.unroute(isPreview);
+        }
+      } finally { await traffic.close(); }
       await context.close();
     }
     console.log("PASS Chromium desktop/375px real upload/download/remove, long UTF-8 names, focus/labels, app dialog, no overflow/preview/popup, MIME/signature/NFC/OOXML limits, actual interrupted responses and idempotent retry, missing download, full-section review/conflict/pending warning and finalized/reopen file flow");
