@@ -1,0 +1,29 @@
+name: Demo estática - Render
+
+on:
+  push:
+    branches:
+      - demo/render-apresentacao-20261123
+  pull_request:
+    paths:
+      - "apps/web/demo/**"
+      - "apps/web/vite.demo.config.ts"
+      - "apps/web/package.json"
+      - "package.json"
+
+jobs:
+  build-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build:demo
+      - name: Confirm demo entrypoint and assets
+        run: |
+          test -s apps/web/dist/demo/index.html
+          test -d apps/web/dist/demo/assets
